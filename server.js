@@ -124,15 +124,20 @@ db.run(`CREATE TABLE IF NOT EXISTS yard_comments (
 });
 async function syncHubsFromGoogleSheets() {
   try {
-    if (!fs.existsSync('credentials.json')) {
-      console.error('❌ credentials.json file not found. Google Sheets sync skipped.');
-      return;
-    }
+    const { google } = require('googleapis');
 
-    const auth = new google.auth.GoogleAuth({
-      keyFile: 'credentials.json',
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
+const auth = new google.auth.GoogleAuth({
+  credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
+  scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+});
+
+    // ⬇️ your logic using `auth` continues here...
+
+  } catch (error) {
+    console.error('❌ Error syncing hubs from Google Sheets:', error);
+  }
+}
+
 
     const sheets = google.sheets({ version: 'v4', auth });
     const response = await sheets.spreadsheets.values.get({
@@ -142,36 +147,37 @@ async function syncHubsFromGoogleSheets() {
 
     const rows = response.data.values;
 
-    db.serialize(() => {
-      db.run('DELETE FROM hubs');
-      db.run('DELETE FROM car_assignments');
-      if (rows && rows.length) {
-        db.run('BEGIN TRANSACTION');
-        rows.forEach(row => {
-          const [reg_no, hub_location, reason] = row;
-          if (hub_location && hub_location.trim()) {
-            // Insert unique hub names only
-            db.run(
-              `INSERT OR IGNORE INTO hubs (name, location, sheet_id) VALUES (?, ?, ?)`,
-              [hub_location, hub_location, '1Of8Wl0xnLdtQb2MLeaYXvw_ZX9RKI1o1yrhxNZlyhnM']
-            );
-          }
-          if (reg_no && hub_location) {
-            db.run(
-              `INSERT OR REPLACE INTO car_assignments (reg_no, hub_location, reason) VALUES (?, ?, ?)`,
-              [reg_no, hub_location, reason || 'unknown']
-            );
-          }
-        });
-        db.run('COMMIT');
-        console.log(`✅ Synced ${rows.length} car assignments and hubs from Google Sheets`);
-      }
-    });
+db.serialize(() => {
+  try {
+    db.run('DELETE FROM hubs');
+    db.run('DELETE FROM car_assignments');
+    
+    if (rows && rows.length) {
+      db.run('BEGIN TRANSACTION');
+      rows.forEach(row => {
+        const [reg_no, hub_location, reason] = row;
+        if (hub_location && hub_location.trim()) {
+          // Insert unique hub names only
+          db.run(
+            `INSERT OR IGNORE INTO hubs (name, location, sheet_id) VALUES (?, ?, ?)`,
+            [hub_location, hub_location, '1Of8Wl0xnLdtQb2MLeaYXvw_ZX9RKI1o1yrhxNZlyhnM']
+          );
+        }
+        if (reg_no && hub_location) {
+          db.run(
+            `INSERT OR REPLACE INTO car_assignments (reg_no, hub_location, reason) VALUES (?, ?, ?)`,
+            [reg_no, hub_location, reason || 'unknown']
+          );
+        }
+      });
+      db.run('COMMIT');
+      console.log(`✅ Synced ${rows.length} car assignments and hubs from Google Sheets`);
+    }
   } catch (err) {
     console.error('❌ Google Sheets sync error:', err.message);
     throw err;
   }
-}
+});
 
 
 
